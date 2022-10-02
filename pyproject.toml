@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "my-pre-commit-hooks"
-version = "0.1.0"
+version = "v0.2.0"
 description = "Pre-commit hooks by Paul Logston"
 authors = ["Paul Logston <paul.logston@gmail.com>"]
 license = "MIT"

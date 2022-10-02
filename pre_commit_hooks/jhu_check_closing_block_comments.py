@@ -4,8 +4,6 @@ import argparse
 import re
 from typing import Sequence
 
-from attr import s
-
 
 def _fix_file(filename):
     with open(filename, mode='rb') as fp:
