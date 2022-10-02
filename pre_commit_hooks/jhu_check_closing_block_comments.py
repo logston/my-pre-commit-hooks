@@ -4,17 +4,19 @@ import argparse
 import re
 from typing import Sequence
 
+from attr import s
+
 
 def _fix_file(filename):
     with open(filename, mode='rb') as fp:
         content = fp.read().decode()
 
     try:
-        depth_map = get_depth_map(content)
+        indexes = get_brace_indexes(content)
     except ValueError as e:
         raise ValueError(f'Error found in {filename} {e}')
 
-    block_map = get_block_map_from_depth_map(content, depth_map)
+    block_map = ignore_specific_blocks(get_block_map_from_indexes(content, indexes))
 
     original_content = content
     content = update_content(content, block_map)
@@ -26,37 +28,37 @@ def _fix_file(filename):
 
     return 0
 
-def get_depth_map(content):
-    depth_map = {}
+
+def get_brace_indexes(content) -> list:
+    indexes = []
+    end_by_depth = {}
     depth = 0
     for i, c in enumerate(reversed(content)):
         if c == '}':
-            depth_map[depth] = {'end': i}
+            end_by_depth[depth] = len(content) - i - 1
             depth += 1
-        if c == '{':
+        elif c == '{':
             depth -= 1
-            rev_index_map = depth_map.get(depth)
-            if rev_index_map is None:
+            end = end_by_depth.get(depth)
+            if end is None:
                 raise ValueError('unbalanced braces')
-            rev_index_map['start'] = i
-    return depth_map
-
-
-def get_block_map_from_depth_map(content, depth_map):
-    # Build a map of braces indexes and use that to determine block type.
-    block_map = {}
-    for rev_index_map in depth_map.values():
-        block_map[
-            (
-                len(content) - rev_index_map['start'],
-                len(content) - rev_index_map['end']
+            del end_by_depth[depth]
+            indexes.append(
+                (
+                    len(content) - i - 1,
+                    end,
+                )
             )
-        ] = None
+    return sorted(indexes)
 
+
+def get_block_map_from_indexes(content, indexes: list[tuple]):
+    # Build a map of braces indexes and use that to determine block type.
+    block_map = {k: '' for k in indexes}
     for key in block_map:
         # read backwards until we find a key word
-        i = key[0]
-        could_be_method = False
+        i = key[0]  # Opening brace position
+        seen_right_paren = False
         while i > 0:
             if re.match(r'\s+class\s+', content[i - 7:i]):
                 block_map[key] = 'CLASS'
@@ -64,7 +66,7 @@ def get_block_map_from_depth_map(content, depth_map):
             elif re.match(r'\s+while\s+', content[i - 7:i]):
                 block_map[key] = 'WHILE'
                 break
-            elif re.match(r'\s+switch\s+', content[i - 7:i]):
+            elif re.match(r'\s+switch\s+', content[i - 8:i]):
                 block_map[key] = 'SWITCH'
                 break
             elif re.match(r'\s+for\s+', content[i - 5:i]):
@@ -73,25 +75,27 @@ def get_block_map_from_depth_map(content, depth_map):
             elif re.match(r'\s+if\s+', content[i - 4:i]):
                 block_map[key] = 'IF'
                 break
-            elif re.match(r'\s+=\s+', content[i - 3:i]):
+            elif not seen_right_paren and re.match(r'\s+=\s+', content[i - 3:i]):
                 block_map[key] = 'EQ'
                 break
             elif content[i - 1:i] == ')':
-                could_be_method = True
-            elif could_be_method and found_method_visibiltiy_before_new_line(content, i):
+                seen_right_paren = True
+            elif seen_right_paren and found_method_visibiltiy_before_new_line(content, i):
                 block_map[key] = 'METHOD'
                 break
 
             i -= 1
 
+    return block_map
+
+
+def ignore_specific_blocks(block_map):
     # Ignore some block types
     ignored = (
         'IF',
         'EQ',
     )
-    block_map = {k: v for k, v in block_map.items() if v not in ignored}
-
-    return block_map
+    return {k: v for k, v in block_map.items() if v not in ignored}
 
 
 def update_content(content, block_map):
@@ -106,25 +110,32 @@ def update_content(content, block_map):
         if read_forwards_for_comment(content, end_brace_index):
             continue
 
-        increase = 0
+        pre_len = len(content)
         if value == 'CLASS':
-            pre_len = len(content)
             content = handle_class(content, start_brace_index, end_brace_index)
-            increase = len(content) - pre_len
+        elif value == 'METHOD':
+            content = handle_method(content, start_brace_index, end_brace_index)
+        elif value == 'FOR':
+            content = handle_for(content, end_brace_index)
+        elif value == 'WHILE':
+            content = handle_while(content, end_brace_index)
+        elif value == 'SWITCH':
+            content = handle_switch(content, end_brace_index)
 
-        block_map = rebuild_block_map(block_map, end_brace_index, increase)
+        block_map = rebuild_block_map(block_map, end_brace_index, len(content) - pre_len)
 
     return content
 
 
 def rebuild_block_map(block_map, end_brace_index, increase) -> dict:
     new = {}
-    for start, stop in block_map.keys():
-        if stop > end_brace_index:
-            new_stop = end_brace_index + increase
-            new[(start, new_stop)] = block_map.get((start, stop))
-        else:
-            new[(start, stop)] = block_map.get((start, stop))
+    for (start, stop), block in block_map.items():
+        if start >= end_brace_index:
+            start += increase
+        if stop >= end_brace_index:
+            stop += increase
+
+        new[(start, stop)] = block
 
     return new
 
@@ -136,13 +147,56 @@ def handle_class(content, start_brace_index, end_brace_index):
     # check if class_name is after second index
     comment = f' // end class {class_name}'
     if not content[end_brace_index:].startswith(comment):
-        content = content[:end_brace_index] + comment + content[end_brace_index:]
+        content = content[:end_brace_index + 1] + comment + content[end_brace_index + 1:]
 
     return content
 
+
+def handle_method(content, start_brace_index, end_brace_index):
+    # read back from starting brace until you have a full token
+    method_name = read_backwards_for_name_before_parens(
+        content,
+        start_brace_index,
+    )
+
+    # check if name is after second index
+    comment = f' // end {method_name}()'
+    if not content[end_brace_index:].startswith(comment):
+        content = content[:end_brace_index + 1] + comment + content[end_brace_index + 1:]
+
+    return content
+
+
+def handle_for(content, end_brace_index):
+    # check if name is after second index
+    comment = f' // end for'
+    if not content[end_brace_index:].startswith(comment):
+        content = content[:end_brace_index + 1] + comment + content[end_brace_index + 1:]
+
+    return content
+
+
+def handle_while(content, end_brace_index):
+    # check if name is after second index
+    comment = f' // end while'
+    if not content[end_brace_index:].startswith(comment):
+        content = content[:end_brace_index + 1] + comment + content[end_brace_index + 1:]
+
+    return content
+
+
+def handle_switch(content, end_brace_index):
+    # check if name is after second index
+    comment = f' // end switch'
+    if not content[end_brace_index:].startswith(comment):
+        content = content[:end_brace_index + 1] + comment + content[end_brace_index + 1:]
+
+    return content
+
+
 def found_method_visibiltiy_before_new_line(content, i) -> bool:
     line_start = i
-    while line_start >= 0:
+    while line_start > 0:
         line_start -= 1
         if content[line_start] == '\n':
             break
@@ -190,6 +244,37 @@ def read_backwards_for_token(content, start_pos, stop_by_tokens=()) -> str:
         i += 1
 
     return ''.join(chars).strip()
+
+
+def read_backwards_for_name_before_parens(content, start_pos) -> str:
+    # Read backwards until you find a stop by token.
+    depth = None
+    i = start_pos
+    while i > 0 and (depth is None or depth):
+        i -= 1
+        if content[i] == ')':
+            if depth is None:
+                depth = 0
+            depth += 1
+        elif content[i] == '(':
+            if depth is None:
+                raise ValueError('unbalanced parens')
+            depth -= 1
+
+    chars = []
+    capturing = False
+    while True:
+        if re.match(r'\s', content[i]) and capturing:
+            break
+        elif re.match(r'\w', content[i]) and not capturing:
+            capturing = True
+
+        if capturing:
+            chars.append(content[i])
+
+        i -= 1
+
+    return ''.join(reversed(chars)).strip()
 
 
 def main(argv: Sequence[str] | None = None) -> int:

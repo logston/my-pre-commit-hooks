@@ -1,8 +1,11 @@
 import pytest
 
-from pre_commit_hooks.jhu_check_closing_block_comments import main
-from pre_commit_hooks.jhu_check_closing_block_comments import get_depth_map
-from pre_commit_hooks.jhu_check_closing_block_comments import get_block_map_from_depth_map
+from pre_commit_hooks.jhu_check_closing_block_comments import (
+    get_block_map_from_indexes,
+    get_brace_indexes,
+    read_backwards_for_name_before_parens,
+    main,
+)
 
 all_with_comments = """
 // A mock class.
@@ -33,7 +36,6 @@ public class MyClass {
          System.out.println("Monday");
          break;
      } // end switch
-
    } // end myMethod()
 } // end class MyClass
 """
@@ -67,7 +69,6 @@ public class MyClass {
          System.out.println("Monday");
          break;
      }
-
    }
 }
 """
@@ -123,6 +124,7 @@ public class MorseTest extends TestCase {
         (method_with_comments, method_with_comments),
         (if_with_no_comments, if_with_no_comments),
         (array_with_no_comments, array_with_no_comments),
+        (all_with_no_end_comments, all_with_comments),
     ),
 )
 def test_fixes_missing_comments(input_s, expected, tmpdir):
@@ -132,37 +134,57 @@ def test_fixes_missing_comments(input_s, expected, tmpdir):
     assert path.read() == expected, path.read()
 
 
-def test_get_depth_map():
-    content = """
-class MyClass {
-   public void checkValid() throws Exception {
-      if (true) {
-         throw new Exception();
-      }
-   } // end checkValid()
-} // end class MyClass
-"""
-    depth_map = get_depth_map(content)
-    assert depth_map == {
-        0: {'end': 22, 'start': 154},
-        1: {'end': 44, 'start': 107},
-        2: {'end': 49, 'start': 89}
-    }
+@pytest.mark.parametrize(
+    ('input_s', 'expected'),
+    (
+        ("{}", [(0, 1)]),
+        ("{{}}", [(0, 3), (1, 2)]),
+        (if_with_no_comments, [(15, 147), (62, 125), (80, 120)]),
+        (all_with_comments,  [
+            (39, 570),  # class
+            (88, 550),  # method
+            (105, 156), # if
+            (192, 304), # for
+            (242, 297), # if
+            (353, 402), # while
+            (454, 531), # switch
+        ]),
+    ),
+)
+def test_get_brace_indexes(input_s, expected):
+    assert get_brace_indexes(input_s) == expected
 
 
-def test_get_block_map():
-    content = """
-class MyClass {
-   public void checkValid() throws Exception {
-      if (true) {
-         throw new Exception();
-      }
-   } // end checkValid()
-} // end class MyClass
-"""
-    depth_map = get_depth_map(content)
-    block_map = get_block_map_from_depth_map(content, depth_map)
-    assert block_map == {
-        (16, 148): 'CLASS',
-        (63, 126): 'METHOD',
-    }
+@pytest.mark.parametrize(
+    ('input_s', 'expected'),
+    (
+        ("public class MyClass {}", {(21, 22): 'CLASS'}),
+        ("public static void main(String[] args) {}", {(39, 40): 'METHOD'}),
+        (all_with_comments,
+            {
+                (39, 570): 'CLASS',
+                (88, 550): 'METHOD',
+                (105, 156): 'IF',
+                (192, 304): 'FOR',
+                (242, 297): 'IF',
+                (353, 402): 'WHILE',
+                (454, 531): 'SWITCH',
+            },
+        ),
+    ),
+)
+def test_get_block_map(input_s, expected):
+    indexes = get_brace_indexes(input_s)
+    block_map = get_block_map_from_indexes(input_s, indexes)
+    assert block_map == expected
+
+
+@pytest.mark.parametrize(
+    ('input_s', 'expected'),
+    (
+        ("public myMethod() {}", 'myMethod'),
+        ("public static void main(String[] args) {}", 'main'),
+    ),
+)
+def test_read_backwards_for_name_before_parens(input_s, expected):
+    assert read_backwards_for_name_before_parens(input_s, input_s.index('{')) == expected
