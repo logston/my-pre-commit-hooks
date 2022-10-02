@@ -1,0 +1,7 @@
+- id: jhu-check-closing-block-comments
+  name: check for comments at end of blocks
+  description: ensures blocks are properly commented
+  entry: jhu-check-closing-block-comments
+  language: python
+  types: [java]
+  stages: [commit, push, manual]
