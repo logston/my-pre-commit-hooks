@@ -64,11 +64,20 @@ def get_block_map_from_indexes(content, indexes: list[tuple]):
             elif re.match(r'\s+while\s+', content[i - 7:i]):
                 block_map[key] = 'WHILE'
                 break
+            elif re.match(r'\s+catch\s+', content[i - 7:i]):
+                block_map[key] = 'CATCH'
+                break
+            elif re.match(r'\s+finally\s+', content[i - 9:i]):
+                block_map[key] = 'FINALLY'
+                break
             elif re.match(r'\s+switch\s+', content[i - 8:i]):
                 block_map[key] = 'SWITCH'
                 break
             elif re.match(r'\s+for\s+', content[i - 5:i]):
                 block_map[key] = 'FOR'
+                break
+            elif re.match(r'\s+try\s+', content[i - 5:i]):
+                block_map[key] = 'TRY'
                 break
             elif re.match(r'\s+if\s+', content[i - 4:i]):
                 block_map[key] = 'IF'
@@ -92,6 +101,9 @@ def ignore_specific_blocks(block_map):
     ignored = (
         'IF',
         'EQ',
+        'TRY',
+        'CATCH',
+        'FINALLY',
     )
     return {k: v for k, v in block_map.items() if v not in ignored}
 

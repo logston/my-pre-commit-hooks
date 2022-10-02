@@ -115,6 +115,19 @@ public class MorseTest extends TestCase {
 } // end MorseTest
 """
 
+try_with_no_comments = """
+class MyClass {
+   public void checkValid() throws Exception {
+      try {
+         address.checkValid();
+         return address;
+      } catch (Exception ex) {
+         System.out.printf("\tInvalid address: %s\n", ex.getMessage());
+      }
+   } // end checkValid()
+} // end class MyClass
+"""
+
 @pytest.mark.parametrize(
     ('input_s', 'expected'),
     (
@@ -125,6 +138,7 @@ public class MorseTest extends TestCase {
         (if_with_no_comments, if_with_no_comments),
         (array_with_no_comments, array_with_no_comments),
         (all_with_no_end_comments, all_with_comments),
+        (try_with_no_comments, try_with_no_comments),
     ),
 )
 def test_fixes_missing_comments(input_s, expected, tmpdir):
