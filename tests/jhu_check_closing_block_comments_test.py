@@ -128,6 +128,18 @@ class MyClass {
 } // end class MyClass
 """
 
+switch_with_comments = """
+class MyClass {
+   public String myMethod() {
+      return switch (scanner.nextLine().trim().toUpperCase()) {
+         case "YES", "Y" -> true;
+         case "NO", "N" -> false;
+         default -> throw new Exception("Invalid input");
+      }; // end switch
+   } // end myMethod()
+} // end class MyClass
+"""
+
 @pytest.mark.parametrize(
     ('input_s', 'expected'),
     (
@@ -139,6 +151,7 @@ class MyClass {
         (array_with_no_comments, array_with_no_comments),
         (all_with_no_end_comments, all_with_comments),
         (try_with_no_comments, try_with_no_comments),
+        (switch_with_comments, switch_with_comments),
     ),
 )
 def test_fixes_missing_comments(input_s, expected, tmpdir):
@@ -166,7 +179,7 @@ def test_fixes_missing_comments(input_s, expected, tmpdir):
     ),
 )
 def test_get_brace_indexes(input_s, expected):
-    assert get_brace_indexes(input_s) == expected
+    assert get_brace_indexes(input_s, "test") == expected
 
 
 @pytest.mark.parametrize(
@@ -188,7 +201,7 @@ def test_get_brace_indexes(input_s, expected):
     ),
 )
 def test_get_block_map(input_s, expected):
-    indexes = get_brace_indexes(input_s)
+    indexes = get_brace_indexes(input_s, "test")
     block_map = get_block_map_from_indexes(input_s, indexes)
     assert block_map == expected
 

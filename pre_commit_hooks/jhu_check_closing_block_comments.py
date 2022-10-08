@@ -10,7 +10,7 @@ def _fix_file(filename):
         content = fp.read().decode()
 
     try:
-        indexes = get_brace_indexes(content)
+        indexes = get_brace_indexes(content, filename)
     except ValueError as e:
         raise ValueError(f'Error found in {filename} {e}')
 
@@ -27,7 +27,7 @@ def _fix_file(filename):
     return 0
 
 
-def get_brace_indexes(content) -> list:
+def get_brace_indexes(content, filename) -> list:
     indexes = []
     end_by_depth = {}
     depth = 0
@@ -39,7 +39,7 @@ def get_brace_indexes(content) -> list:
             depth -= 1
             end = end_by_depth.get(depth)
             if end is None:
-                raise ValueError('unbalanced braces')
+                raise ValueError(f'unbalanced parens near {content[i-100:i+100]} in {filename}')
             del end_by_depth[depth]
             indexes.append(
                 (
@@ -82,6 +82,9 @@ def get_block_map_from_indexes(content, indexes: list[tuple]):
             elif re.match(r'\s+if\s+', content[i - 4:i]):
                 block_map[key] = 'IF'
                 break
+            elif re.match(r'new ', content[i - 4:i]):
+                block_map[key] = 'ARRAY'
+                break
             elif not seen_right_paren and re.match(r'\s+=\s+', content[i - 3:i]):
                 block_map[key] = 'EQ'
                 break
@@ -104,6 +107,7 @@ def ignore_specific_blocks(block_map):
         'TRY',
         'CATCH',
         'FINALLY',
+        'ARRAY',
     )
     return {k: v for k, v in block_map.items() if v not in ignored}
 
@@ -198,7 +202,10 @@ def handle_while(content, end_brace_index):
 def handle_switch(content, end_brace_index):
     # check if name is after second index
     comment = f' // end switch'
-    if not content[end_brace_index:].startswith(comment):
+    if content[end_brace_index+1:].strip().startswith(";"):
+        # Account for semi-colon.
+        content = content[:end_brace_index + 2] + comment + content[end_brace_index + 2:]
+    else:
         content = content[:end_brace_index + 1] + comment + content[end_brace_index + 1:]
 
     return content
@@ -268,7 +275,7 @@ def read_backwards_for_name_before_parens(content, start_pos) -> str:
             depth += 1
         elif content[i] == '(':
             if depth is None:
-                raise ValueError('unbalanced parens')
+                continue
             depth -= 1
 
     chars = []
